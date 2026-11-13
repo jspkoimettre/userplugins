@@ -28,24 +28,11 @@ const UserContext: NavContextMenuPatchCallback = (children, props) => {
     const { user, guildId } = props;
 
     console.log("[onDecoLia] UserContext called! user:", user?.username, "guildId:", guildId);
-    // Find the "block user" button and insert Actions right after it
-    // let insertIndex = -1;
-    // for (let i = 0; i < children.length; i++) {
-    //     const child = children[i];
-    //     if (child?.props?.id === "block-user" || child?.props?.label?.toLowerCase?.()?.includes?.("block") || child?.props?.label?.toLowerCase?.()?.includes?.("bloquer")) {
-    //         insertIndex = i + 1;
-    //         console.log("[onDecoLia] Inserting Actions menu at index:", insertIndex);
-    //         break;
-    //     }
-    // }
-    // // If block button not found, use position before last item (default behavior)
-    // if (insertIndex === -1) insertIndex = children.length - 1;
-    // Si c'est dans un salon vocal (guildId existe)
-    if (guildId) {
+    if (guildId && user) {
         const userSet = userActions.get(user.id) || new Set<string>();
 
 
-        children.splice(-2, 0, (
+        children.push(
             <Menu.MenuItem id="onDecoLia-actions" label="Actions" color="danger">
                 <Menu.MenuCheckboxItem
                     id="ondecolia-action-kick"
@@ -127,7 +114,7 @@ const UserContext: NavContextMenuPatchCallback = (children, props) => {
                     }}
                 />
             </Menu.MenuItem>
-        ));
+        );
     }
 };
 
@@ -159,31 +146,6 @@ function handleVoiceUpdate(event: any) {
     }
 }
 
-// function handleGuildMemberUpdate(event: any) {
-//     const { user, guild_id, mute } = event;
-//     if (!user || !guild_id) return;
-
-//     const userId = String(user.id || "");
-//     const set = userActions.get(userId);
-
-//     // Si l'utilisateur a le "mute" activé et que son état serveur n'est pas muté, le remmute
-//     if (set && set.has("mute") && !mute) {
-//         console.debug("[onDecoLia] Mute enlevé, remmute...");
-//         if (RestAPI) {
-//             setTimeout(() => {
-//                 try {
-//                     RestAPI.patch({
-//                         url: `${Constants.Endpoints.GUILD_MEMBERS(guild_id)}/${userId}`,
-//                         body: { mute: true }
-//                     });
-//                     console.debug("[onDecoLia] Remute appliqué");
-//                 } catch (e) {
-//                     console.debug("[onDecoLia] Erreur remute:", e);
-//                 }
-//             }, 0);
-//         }
-//     }
-// }
 
 function periodicEnforce() {
     try {
@@ -206,32 +168,6 @@ function periodicEnforce() {
                     interval = 5000;
                 }
             }
-
-            // Re-apply admin mute: if set and member not muted, patch
-            // if (set.has("mute") && RestAPI) {
-            //     // Check voice state mute flag
-            //     const vs = VoiceStateStore?.getVoiceStateForUser ? VoiceStateStore.getVoiceStateForUser(userId) : null;
-            //     const isMuted = !!(vs?.mute);
-            //     if (!isMuted) {
-            //         // need guild id to patch member
-            //         const channelId = vs?.channelId;
-            //         const channel = ChannelStore?.getChannel ? ChannelStore.getChannel(channelId) : null;
-            //         // Try multiple possible guild id fields
-            //         const guildId = channel?.guild_id ?? channel?.guildId ?? channel?.guild?.id ?? vs?.guildId ?? vs?.guild_id ?? null;
-            //         if (!guildId) {
-            //             console.debug("[onDecoLia] periodicEnforce: missing guildId for user", userId);
-            //         } else {
-            //             RestAPI.patch({
-            //                 url: `${Constants.Endpoints.GUILD_MEMBERS(guildId)}/${userId}`,
-            //                 body: { mute: true }
-            //             }).then(() => {
-            //                 // success
-            //             }).catch((e: any) => {
-            //                 console.debug("[onDecoLia] periodicEnforce remute error:", e);
-            //             });
-            //         }
-            //     }
-            // }
         }
     } catch (e) {
         console.debug("[onDecoLia] periodicEnforce error:", e);
@@ -242,16 +178,6 @@ export default definePlugin({
     name: "onDecoLia",
     description: "Anti-Lia Vocal",
     authors: [{ name: "KANT1", id: 541691494872907789n }],
-
-    patches: [
-        {
-            find: "UserContextMenu",
-            replacement: {
-                match: /function (\w+)\((\w+)\){/,
-                replace: "function $1($2){$self.UserContext($2.children,$2.props);"
-            }
-        }
-    ],
 
     contextMenus: {
         "user-context": UserContext
@@ -283,6 +209,10 @@ export default definePlugin({
         // Nettoyage propre lors de la désactivation
         FluxDispatcher?.unsubscribe("VOICE_STATE_UPDATE", handleVoiceUpdate);
         FluxDispatcher?.unsubscribe("VOICE_STATE_UPDATES", handleVoiceUpdate);
+        if (checkInterval) {
+            clearInterval(checkInterval);
+            checkInterval = null;
+        }
         // FluxDispatcher?.unsubscribe("GUILD_MEMBER_UPDATE", handleGuildMemberUpdate);
         console.log("[onDecoLia] 🛑 Plugin stopped.");
     }
