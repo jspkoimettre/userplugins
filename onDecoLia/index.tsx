@@ -20,6 +20,7 @@ let interval = 5000;
 const tryCount = 0;
 const userActions: Map<string, Set<string>> = new Map();
 const userGuildMap: Map<string, string> = new Map(); // userId -> guildId (cached for periodicEnforce)
+const pendingMuteReapplications = new Set<string>();
 const ACTIONS = [
     { id: "kick", label: "Kick" }
 ];
@@ -119,29 +120,41 @@ const UserContext: NavContextMenuPatchCallback = (children, props) => {
 };
 
 function handleVoiceUpdate(event: any) {
-    // On gère l'objet simple (UPDATE) ou le premier élément du tableau (UPDATES)
-    const state = event.voiceStates ? event.voiceStates[0] : event;
-    if (!state) return;
+    const states = Array.isArray(event.voiceStates) ? event.voiceStates : [event];
 
-    const userId = String(state.userId || state.user_id || "");
+    for (const state of states) {
+        if (!state) continue;
 
-    const guildId = state.guildId || event.guildId;
+        const userId = String(state.userId || state.user_id || "");
+        const guildId = state.guildId || state.guild_id || event.guildId || event.guild_id;
+        if (!userId) continue;
 
-    // Vérifier si on doit kicker par ID (liste de cibles)
-    let shouldKick = !!(userId && targetUserIds.has(userId));
+        const actions = userActions.get(userId);
+        if (state.mute === false && actions?.has("mute") && guildId) {
+            const requestId = `${guildId}-${userId}`;
+            if (!pendingMuteReapplications.has(requestId)) {
+                pendingMuteReapplications.add(requestId);
+                RestAPI.patch({
+                    url: `${Constants.Endpoints.GUILD_MEMBERS(guildId)}/${userId}`,
+                    body: { mute: true }
+                }).then(() => {
+                    console.debug("[onDecoLia] Admin mute réappliqué pour", userId);
+                }).catch((e: any) => {
+                    console.error("[onDecoLia] Erreur de réapplication du mute admin:", e);
+                }).finally(() => {
+                    pendingMuteReapplications.delete(requestId);
+                });
+            }
+        }
 
-    // Vérifier si l'utilisateur a des actions définies (ex: kick)
-    if (!shouldKick) {
-        const set = userActions.get(userId);
-        if (set && set.has("kick")) shouldKick = true;
-    }
+        const shouldKick = targetUserIds.has(userId) || actions?.has("kick");
+        if (shouldKick && state.channelId) {
+            console.warn("[onDecoLia] 🎯 CIBLE DÉTECTÉE !");
 
-    if (shouldKick && state.channelId) {
-        console.warn("[onDecoLia] 🎯 CIBLE DÉTECTÉE !");
-
-        if (VoiceActions?.setChannel) {
-            VoiceActions.setChannel(guildId, userId, null);
-            console.log("[onDecoLia] Kick effectué avec succès.");
+            if (VoiceActions?.setChannel) {
+                VoiceActions.setChannel(guildId, userId, null);
+                console.log("[onDecoLia] Kick effectué avec succès.");
+            }
         }
     }
 }
